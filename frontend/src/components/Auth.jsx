@@ -1,33 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-const Auth = ({ onLoginSuccess }) => {
-  const [isLogin, setIsLogin] = useState(true);
-  
+const Auth = ({ onLoginSuccess, initialMode = 'login' }) => {
+  const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setIsLogin(initialMode === 'login');
+    setError(null);
+  }, [initialMode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     
     if (!isLogin) {
-        if (password.length < 4) {
-             setError("Password must be at least 4 characters");
-             return;
-        }
-        if (password !== confirmPassword) {
-             setError("Passwords do not match");
-             return;
-        }
+      if (password.length < 4) {
+        setError("Password must be at least 4 characters long.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
     }
 
+    setLoading(true);
     const endpoint = isLogin ? '/api/login' : '/api/register';
-    const payload = { username, password };
+    const payload = { username: username.trim(), password };
     
     try {
       const res = await fetch(`${API_URL}${endpoint}`, {
@@ -40,90 +45,150 @@ const Auth = ({ onLoginSuccess }) => {
       if (res.ok) {
         onLoginSuccess(data.user_id, data.username);
       } else {
-        setError(data.error || 'Authentication failed');
+        setError(data.error || 'Authentication failed. Please verify credentials.');
       }
     } catch (err) {
-      setError('Cannot connect to server. Is the backend running?');
+      setError('Cannot connect to MotoSync backend server. Is it running on port 5000?');
+    } finally {
+      setLoading(false);
     }
   };
 
   const toggleMode = () => {
-      setIsLogin(!isLogin);
-      setError(null);
-      setUsername(''); setPassword(''); setConfirmPassword('');
+    setIsLogin(!isLogin);
+    setError(null);
+    setUsername('');
+    setPassword('');
+    setConfirmPassword('');
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 text-white font-sans">
-      <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl border border-gray-700 w-full max-w-md">
-        <h1 className="text-4xl font-bold text-center mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-          MotoSync
-        </h1>
-        <p className="text-gray-400 text-center mb-8 text-sm">
-          {isLogin ? 'Log in to join your crew' : 'Create an account to start riding'}
-        </p>
+    <div className="w-full">
+      <div className="glass-card bg-black/90 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.9)] text-white font-sans relative overflow-hidden">
+        
+        {/* Subtle aqua corner glow */}
+        <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-[#00e5ff]/8 blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 -left-12 w-32 h-32 rounded-full bg-[#00e5ff]/5 blur-2xl pointer-events-none" />
 
+        {/* Brand Icon & Heading */}
+        <div className="text-center mb-6">
+          <div className="inline-flex w-12 h-12 rounded-2xl bg-black items-center justify-center shadow-[0_0_18px_rgba(0,229,255,0.4)] border border-[#00e5ff]/30 mb-3">
+            <span className="text-2xl">🏍️</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+            Moto<span className="text-[#00e5ff] text-glow-cyan">Sync</span> Portal
+          </h2>
+          <p className="text-xs sm:text-sm text-white/40 mt-1">
+            {isLogin ? 'Sign in to access your live convoy & telemetry' : 'Create a rider account to start hosting convoys'}
+          </p>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex bg-black/60 p-1.5 rounded-2xl border border-white/8 mb-6">
+          <button
+            type="button"
+            onClick={() => { setIsLogin(true); setError(null); }}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+              isLogin
+                ? 'bg-[#00e5ff] text-black shadow-md'
+                : 'text-white/40 hover:text-white'
+            }`}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIsLogin(false); setError(null); }}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+              !isLogin
+                ? 'bg-[#00e5ff] text-black shadow-md'
+                : 'text-white/40 hover:text-white'
+            }`}
+          >
+            Register
+          </button>
+        </div>
+
+        {/* Error notification */}
         {error && (
-          <div className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-xl mb-6 text-sm">
-            {error}
+          <div className="glass-card bg-red-950/60 border border-red-500/40 text-red-200 px-4 py-3 rounded-2xl mb-5 text-xs flex items-center space-x-2 shadow-inner">
+            <span className="text-base">⚠️</span>
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Auth Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-gray-400 text-sm font-medium mb-1">Username</label>
+            <label className="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-1.5">
+              Rider Handle / Username
+            </label>
             <input 
               type="text" 
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition disabled:opacity-50"
-              placeholder="e.g. ghostrider"
+              className="w-full glass-input px-4 py-3 rounded-xl text-sm focus:outline-none transition"
+              placeholder="e.g. Maverick_Rider"
               required
+              disabled={loading}
             />
           </div>
           
           <div>
-            <label className="block text-gray-400 text-sm font-medium mb-1">Password</label>
+            <label className="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-1.5">
+              Password {isLogin ? '' : '(Min 4 chars)'}
+            </label>
             <input 
               type="password" 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-              placeholder={isLogin ? "••••••••" : "Min 4 characters"}
+              className="w-full glass-input px-4 py-3 rounded-xl text-sm focus:outline-none transition"
+              placeholder="••••••••"
               required
+              disabled={loading}
             />
           </div>
 
           {!isLogin && (
             <div>
-              <label className="block text-gray-400 text-sm font-medium mb-1">Confirm Password</label>
+              <label className="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-1.5">
+                Confirm Password
+              </label>
               <input 
                 type="password" 
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-                placeholder="Repeat password"
+                className="w-full glass-input px-4 py-3 rounded-xl text-sm focus:outline-none transition"
+                placeholder="Repeat your password"
                 required
+                disabled={loading}
               />
             </div>
           )}
 
           <button 
             type="submit" 
-            className="w-full bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition-transform transform hover:-translate-y-1 focus:outline-none"
+            disabled={loading}
+            className="w-full bg-[#00e5ff] hover:bg-[#33ecff] text-black font-bold py-3.5 px-4 rounded-xl shadow-[0_0_22px_rgba(0,229,255,0.35)] transition transform hover:-translate-y-0.5 border border-[#00e5ff]/30 mt-2 flex items-center justify-center space-x-2 disabled:opacity-50"
           >
-            {isLogin ? 'Log In' : 'Sign Up'}
+            {loading ? (
+              <span className="inline-block animate-spin mr-2">🔄</span>
+            ) : null}
+            <span>{isLogin ? 'Enter Convoy Portal' : 'Create Free Rider Account'}</span>
+            <span>→</span>
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-5 text-center">
           <button 
+            type="button"
             onClick={toggleMode}
-            className="text-gray-400 hover:text-white text-sm transition"
+            className="text-xs text-white/30 hover:text-[#00e5ff] transition underline"
           >
-            {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
+            {isLogin ? "Need a new account? Register here" : "Already registered? Sign in instead"}
           </button>
         </div>
+
       </div>
     </div>
   );

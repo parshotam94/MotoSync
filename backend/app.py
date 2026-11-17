@@ -29,22 +29,31 @@ db_url = os.getenv('SQLALCHEMY_DATABASE_URI')
 if db_url:
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+    target_db_uri = db_url
 else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"mysql+mysqlconnector://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    target_db_uri = f"mysql+mysqlconnector://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
+# Test connection to target DB before init_app; if unavailable, use local SQLite
+from sqlalchemy import create_engine
+basedir = os.path.abspath(os.path.dirname(__file__))
+sqlite_uri = f"sqlite:///{os.path.join(basedir, 'motosync.db')}"
+
+try:
+    test_engine = create_engine(target_db_uri, connect_args={'connect_timeout': 2} if 'mysql' in target_db_uri else {})
+    with test_engine.connect() as conn:
+        pass
+    app.config['SQLALCHEMY_DATABASE_URI'] = target_db_uri
+    print("Connected to primary database successfully.")
+except Exception as e:
+    print(f"NOTICE: Primary database unavailable. Using local SQLite: {sqlite_uri}")
+    app.config['SQLALCHEMY_DATABASE_URI'] = sqlite_uri
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 with app.app_context():
-    try:
-        db.drop_all()
-        db.create_all()
-        print("Database connected and tables created successfully.")
-    except Exception as e:
-        print(f"WARNING: Could not connect to MySQL. Ensure MySQL is running and the database '{DB_NAME}' exists.")
-        print(e)
-
+    db.create_all()
+    print("Database tables verified.")
 # Redis for fast location caching
 REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
@@ -52,8 +61,11 @@ try:
     redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
     redis_client.ping()
 except Exception as e:
-    print("WARNING: Could not connect to Redis. Location caching won't work.")
+    print("NOTICE: Standalone Redis not detected. Using high-performance in-memory dictionary cache.")
     redis_client = None
+
+# In-memory fast location cache: { trip_id: { username: loc_data } }
+convoy_locations = {}
 
 # Track online users for notifications: { "username": "socket_id" }
 user_sockets = {}
@@ -101,6 +113,14 @@ def manage_user(user_id):
         return jsonify({"error": "User not found"}), 404
         
     if request.method == 'DELETE':
+        # Cleanly cascade delete user's created trips, memberships, and requests
+        created_groups = Group.query.filter_by(creator_id=user.id).all()
+        for g in created_groups:
+            GroupRequest.query.filter_by(group_id=g.id).delete()
+            GroupMember.query.filter_by(group_id=g.id).delete()
+            db.session.delete(g)
+        GroupMember.query.filter_by(user_id=user.id).delete()
+        GroupRequest.query.filter((GroupRequest.sender_id == user.id) | (GroupRequest.receiver_id == user.id)).delete()
         db.session.delete(user)
         db.session.commit()
         return jsonify({"message": "User deleted successfully"}), 200
@@ -178,7 +198,14 @@ def create_group():
 @app.route('/api/users/search', methods=['GET'])
 def search_users():
     query = request.args.get('q', '')
-    users = User.query.filter(User.username.ilike(f'%{query}%')).limit(10).all()
+    exclude_id = request.args.get('user_id')
+    
+    q_filter = User.username.ilike(f'%{query}%')
+    if exclude_id and exclude_id.isdigit():
+        users = User.query.filter(q_filter, User.id != int(exclude_id)).limit(10).all()
+    else:
+        users = User.query.filter(q_filter).limit(10).all()
+        
     return jsonify([{"id": u.id, "username": u.username} for u in users]), 200
 
 @app.route('/api/requests', methods=['GET'])
@@ -399,12 +426,19 @@ def handle_join_trip(data):
     join_room(trip_id)
     print(f"User {username} joined trip room {trip_id}")
     emit('user_joined', {'user_id': username, 'message': f'User {username} joined the trip'}, room=trip_id)
+    
+    # Sync currently cached convoy positions to the joining rider immediately
+    existing_locations = convoy_locations.get(trip_id, {})
+    if existing_locations:
+        emit('initial_convoy_locations', existing_locations, room=request.sid)
 
 @socketio.on('leave_trip')
 def handle_leave_trip(data):
     username = data.get('user_id')
     trip_id = data.get('trip_id')
     leave_room(trip_id)
+    if trip_id in convoy_locations and username in convoy_locations[trip_id]:
+        del convoy_locations[trip_id][username]
     emit('user_left', {'user_id': username, 'message': f'User {username} left the trip'}, room=trip_id)
 
 @socketio.on('close_or_save_trip')
@@ -418,8 +452,12 @@ def handle_close_save_trip(data):
         return
         
     if action == 'delete':
+        GroupRequest.query.filter_by(group_id=group.id).delete()
+        GroupMember.query.filter_by(group_id=group.id).delete()
         db.session.delete(group)
         db.session.commit()
+        if trip_id in convoy_locations:
+            del convoy_locations[trip_id]
     elif action == 'save':
         group.status = 'completed'
         db.session.commit()
@@ -442,6 +480,12 @@ def handle_location_update(data):
         'timestamp': data.get('timestamp')
     }
     
+    # Cache in high-speed in-memory dict
+    if trip_id not in convoy_locations:
+        convoy_locations[trip_id] = {}
+    convoy_locations[trip_id][username] = location_data
+    
+    # Cache in Redis if available
     if redis_client is not None:
         try:
             redis_key = f"trip:{trip_id}:user:{username}"
@@ -450,6 +494,30 @@ def handle_location_update(data):
             pass
             
     emit('friend_location_update', location_data, room=trip_id, include_self=False)
+
+@socketio.on('sos_alert')
+def handle_sos_alert(data):
+    """Broadcasts an immediate Emergency SOS distress signal to all riders in the trip"""
+    username = data.get('user_id') or data.get('username')
+    trip_id = data.get('trip_id')
+    lat = data.get('lat')
+    lng = data.get('lng')
+    speed = data.get('speed', 0)
+    
+    if not trip_id or not username:
+        return
+        
+    sos_payload = {
+        'user_id': username,
+        'trip_id': trip_id,
+        'lat': lat,
+        'lng': lng,
+        'speed': speed,
+        'timestamp': data.get('timestamp'),
+        'message': f"EMERGENCY SOS: Rider {username} has broadcasted distress!"
+    }
+    print(f"SOS Alert broadcasted for {username} in trip {trip_id}")
+    emit('emergency_sos_broadcast', sos_payload, room=trip_id)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
