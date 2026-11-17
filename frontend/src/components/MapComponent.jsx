@@ -1,41 +1,68 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
-const selfIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+// Self-contained high-contrast SVG divIcons (Zero external PNG dependency that can fail)
+const selfIcon = L.divIcon({
+  className: 'motosync-self-marker',
+  html: `
+    <div style="position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+      <div style="position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(0, 229, 255, 0.35); animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+      <div style="width: 22px; height: 22px; border-radius: 50%; background: #00e5ff; border: 2.5px solid #000000; box-shadow: 0 0 14px rgba(0,229,255,0.9); display: flex; align-items: center; justify-content: center; font-size: 11px;">
+        🏍️
+      </div>
+    </div>
+  `,
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+  popupAnchor: [0, -18]
 });
 
-const friendIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+const friendIcon = L.divIcon({
+  className: 'motosync-friend-marker',
+  html: `
+    <div style="position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+      <div style="width: 18px; height: 18px; border-radius: 50%; background: #ff4444; border: 2px solid #ffffff; box-shadow: 0 0 10px rgba(255,68,68,0.8); display: flex; align-items: center; justify-content: center; font-size: 9px;">
+        🔴
+      </div>
+    </div>
+  `,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+  popupAnchor: [0, -16]
 });
+
+// Map resize and camera tracker
+function MapController({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    map.invalidateSize();
+    if (center && center.lat && center.lng) {
+      map.setView([center.lat, center.lng], map.getZoom() || 14);
+    }
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [center?.lat, center?.lng, map]);
+  return null;
+}
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) => {
-  const [selfLocation, setSelfLocation] = useState(null);
+const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip, theme = 'dark', onToggleTheme }) => {
+  // Default coordinates ensure the map renders immediately even before GPS lock
+  const [selfLocation, setSelfLocation] = useState({
+    user_id: username,
+    trip_id: tripId,
+    lat: 26.9124,
+    lng: 75.7873,
+    speed: 0,
+    timestamp: Date.now()
+  });
   const [friends, setFriends] = useState({}); 
   const [selectedFriend, setSelectedFriend] = useState(null);
+  const [tileMode, setTileMode] = useState('auto'); // 'auto', 'osm'
   const mapRef = useRef();
 
   // Invite state
@@ -160,7 +187,7 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
 
   useEffect(() => {
     if (!('geolocation' in navigator)) {
-        console.error('Geolocation is not supported by this browser');
+        console.warn('Geolocation sensor is not available in this browser');
         return;
     }
 
@@ -181,25 +208,20 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
 
         setSelfLocation(locData);
 
-        // Throttle updates to 5-second intervals to save bandwidth and battery
-        if (globalSocket && (now - lastSent > 5000)) {
+        // Throttle updates to 4-second intervals to save bandwidth and battery
+        if (globalSocket && (now - lastSent > 4000)) {
             globalSocket.emit('location_update', locData);
             lastSent = now;
         }
-        
-        // Initial map centering
-        if (mapRef.current && !selfLocation) {
-             mapRef.current.setView([latitude, longitude], 14);
-        }
       },
       (error) => {
-        console.warn('Geolocation sensor warning:', error.message);
+        console.warn('Geolocation sensor warning (retaining fallback location):', error.message);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [globalSocket, tripId, username, selfLocation]);
+  }, [globalSocket, tripId, username]);
 
   // Search effect
   useEffect(() => {
@@ -271,31 +293,44 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
       setShowEndModal(false);
   };
 
+  const isLight = theme === 'light';
+
   return (
-    <div className="flex flex-col md:flex-row h-screen w-full bg-[#000000] text-white font-sans overflow-hidden">
+    <div className={`flex flex-col md:flex-row h-screen w-full font-sans overflow-hidden ${isLight ? 'light-theme bg-[#f8fafc] text-slate-900' : 'bg-[#000000] text-white'}`}>
       
       {/* SIDEBAR COCKPIT (Frosted Glass Panel) */}
-      <div className="w-full md:w-84 glass-panel border-r border-white/8 flex flex-col z-20 shadow-2xl relative h-full">
+      <div className="w-full md:w-80 md:min-w-[320px] md:max-w-[320px] glass-panel border-r border-white/8 dark:border-white/8 light:border-black/10 flex flex-col z-20 shadow-2xl relative h-full">
         
         {/* Cockpit Header */}
-        <div className="p-5 border-b border-white/8">
+        <div className="p-4 sm:p-5 border-b border-white/8 dark:border-white/8 light:border-black/10">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2.5">
               <span className="text-xl">🏍️</span>
-              <h1 className="text-xl font-black text-white">
+              <h1 className="text-xl font-black">
                 Moto<span className="text-[#00e5ff]">Sync</span>
               </h1>
             </div>
-            <button 
-              onClick={handleLeaveClick} 
-              className="text-xs text-white/40 hover:text-red-400 font-semibold px-2.5 py-1 rounded-lg glass-badge transition"
-            >
-              Exit Ride
-            </button>
+            <div className="flex items-center space-x-2">
+              {onToggleTheme && (
+                <button
+                  onClick={onToggleTheme}
+                  title={`Switch to ${isLight ? 'Dark' : 'Light'} Mode`}
+                  className="text-xs px-2 py-1 rounded-lg glass-badge transition font-semibold"
+                >
+                  {isLight ? '🌙' : '☀️'}
+                </button>
+              )}
+              <button 
+                onClick={handleLeaveClick} 
+                className="text-xs opacity-60 hover:opacity-100 hover:text-red-400 font-semibold px-2.5 py-1 rounded-lg glass-badge transition"
+              >
+                Exit Ride
+              </button>
+            </div>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-white/40">Trip ID:</span>
-            <span className="font-mono text-[#00e5ff] font-bold bg-black/60 px-2 py-0.5 rounded-md border border-[#00e5ff]/20">
+            <span className="opacity-50">Trip ID:</span>
+            <span className="font-mono text-[#00e5ff] font-bold px-2 py-0.5 rounded-md border border-[#00e5ff]/20 bg-[#00e5ff]/10">
               {tripId}
             </span>
           </div>
@@ -321,27 +356,36 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
               />
               <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
                 {searchResults.length === 0 && searchQuery.length >= 2 && (
-                  <p className="text-[11px] text-white/30 text-center py-2">No matching riders found</p>
+                  <p className="text-[11px] opacity-40 text-center py-2">No matching riders found</p>
                 )}
-                {searchResults.map(u => (
-                  <div key={u.id} className="flex items-center justify-between glass-card p-2 rounded-lg border border-white/8 text-xs">
-                    <span className="font-semibold text-white truncate max-w-[120px]">{u.username}</span>
-                    <button 
-                      onClick={() => !inviteStatus[u.username] && sendInvite(u.username)}
-                      disabled={!!inviteStatus[u.username]}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition shadow ${
-                        inviteStatus[u.username] === 'waiting' ? 'bg-white/20 text-white/50' : 
-                        inviteStatus[u.username] === 'accepted' ? 'bg-[#00e5ff]/20 text-[#00e5ff]' :
-                        inviteStatus[u.username] === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                        'bg-[#00e5ff] hover:bg-[#33ecff] text-black'
-                      }`}
-                    >
-                      {inviteStatus[u.username] === 'waiting' ? 'Sent...' : 
-                       inviteStatus[u.username] === 'accepted' ? 'Accepted' :
-                       inviteStatus[u.username] === 'rejected' ? 'Declined' : 'Invite'}
-                    </button>
-                  </div>
-                ))}
+                {searchResults.map(u => {
+                  const isAlreadyMember = groupInfo.members.some(m => m.username === u.username);
+                  return (
+                    <div key={u.id} className="flex items-center justify-between glass-card p-2 rounded-lg border border-white/8 light:border-slate-200 text-xs">
+                      <span className="font-semibold truncate max-w-[120px]">{u.username}</span>
+                      {isAlreadyMember ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00e5ff]/15 text-[#00e5ff] border border-[#00e5ff]/20">
+                          In Convoy
+                        </span>
+                      ) : (
+                        <button 
+                          onClick={() => !inviteStatus[u.username] && sendInvite(u.username)}
+                          disabled={!!inviteStatus[u.username]}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition shadow ${
+                            inviteStatus[u.username] === 'waiting' ? 'bg-amber-600 text-white' : 
+                            inviteStatus[u.username] === 'accepted' ? 'bg-emerald-600 text-white' :
+                            inviteStatus[u.username] === 'rejected' ? 'bg-red-500 text-white' :
+                            'bg-[#00e5ff] hover:bg-[#33ecff] text-black'
+                          }`}
+                        >
+                          {inviteStatus[u.username] === 'waiting' ? 'Sent...' : 
+                           inviteStatus[u.username] === 'accepted' ? 'Accepted' :
+                           inviteStatus[u.username] === 'rejected' ? 'Declined' : 'Invite'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -444,14 +488,22 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
       {/* MAP AREA */}
       <div className="flex-1 relative z-10 w-full h-[55vh] md:h-full">
         <MapContainer 
-          center={selfLocation ? [selfLocation.lat, selfLocation.lng] : [26.9124, 75.7873]} 
-          zoom={13} 
+          center={[selfLocation.lat, selfLocation.lng]} 
+          zoom={14} 
           className="w-full h-full"
+          style={{ height: '100%', width: '100%', minHeight: '350px' }}
           ref={mapRef}
         >
+          <MapController center={selfLocation} />
+
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url={tileMode === 'osm'
+              ? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              : isLight
+              ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+              : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"}
+            subdomains={['a', 'b', 'c', 'd']}
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
 
           {/* Self Location Marker */}
@@ -500,6 +552,15 @@ const MapComponent = ({ userId, username, tripId, globalSocket, onLeaveTrip }) =
             <span className="w-2 h-2 rounded-full bg-[#00e5ff] animate-ping" />
             <span>Telemetry: Streaming</span>
           </div>
+
+          <button
+            onClick={() => setTileMode(prev => prev === 'osm' ? 'auto' : 'osm')}
+            className="glass-badge px-3 py-1.5 rounded-xl text-xs font-mono border border-white/12 shadow-lg pointer-events-auto hover:bg-[#00e5ff]/10 transition flex items-center space-x-1.5"
+            title="Toggle Map Style"
+          >
+            <span>🗺️</span>
+            <span>{tileMode === 'osm' ? 'OSM Classic' : isLight ? 'Voyager Light' : 'Carto Dark'}</span>
+          </button>
 
           {selfLocation && (
             <div className="glass-badge px-3.5 py-1.5 rounded-xl text-xs font-mono text-[#00e5ff] border border-[#00e5ff]/20 shadow-lg pointer-events-auto">

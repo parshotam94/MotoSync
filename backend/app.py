@@ -227,6 +227,62 @@ def get_pending_requests():
         })
     return jsonify(results), 200
 
+@app.route('/api/requests/<int:request_id>/resolve', methods=['POST'])
+def resolve_request_endpoint(request_id):
+    """REST endpoint to accept or reject a ride request with fallback guarantee."""
+    data = request.json or {}
+    action = data.get('action') # 'accept' or 'reject'
+    user_id = data.get('user_id')
+    
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+        
+    req = GroupRequest.query.get(request_id)
+    if not req:
+        return jsonify({"error": "Ride request not found"}), 404
+        
+    if req.receiver_id != int(user_id):
+        return jsonify({"error": "Unauthorized to resolve this request"}), 403
+        
+    sender = User.query.get(req.sender_id)
+    receiver = User.query.get(req.receiver_id)
+    group = Group.query.get(req.group_id)
+    
+    if not group:
+        return jsonify({"error": "Associated convoy no longer exists"}), 404
+
+    if action == 'accept':
+        req.status = 'accepted'
+        existing_member = GroupMember.query.filter_by(group_id=req.group_id, user_id=user_id).first()
+        if not existing_member:
+            member = GroupMember(group_id=req.group_id, user_id=user_id)
+            db.session.add(member)
+        db.session.commit()
+        
+        if sender and sender.username in user_sockets:
+            socketio.emit('invite_response', {
+                'receiver_username': receiver.username, 
+                'status': 'accepted',
+                'trip_id': group.trip_id
+            }, room=user_sockets[sender.username])
+            
+        return jsonify({
+            "status": "accepted",
+            "trip_id": group.trip_id,
+            "message": f"Successfully joined {group.trip_id}"
+        }), 200
+    else:
+        req.status = 'rejected'
+        db.session.commit()
+        
+        if sender and sender.username in user_sockets:
+            socketio.emit('invite_response', {
+                'receiver_username': receiver.username, 
+                'status': 'rejected'
+            }, room=user_sockets[sender.username])
+            
+        return jsonify({"status": "rejected", "message": "Ride request declined"}), 200
+
 @app.route('/api/groups/<trip_id>/info', methods=['GET'])
 def get_group_info(trip_id):
     group = Group.query.filter_by(trip_id=trip_id).first()
@@ -344,7 +400,10 @@ def handle_resolve_invite(data):
     if action == 'accept':
         req.status = 'accepted'
         # Add to GroupMembers
-        member = GroupMember(group_id=req.group_id, user_id=user_id)
+        existing_m = GroupMember.query.filter_by(group_id=req.group_id, user_id=user_id).first()
+        if not existing_m:
+            member = GroupMember(group_id=req.group_id, user_id=user_id)
+            db.session.add(member)
         db.session.add(member)
         db.session.commit()
         

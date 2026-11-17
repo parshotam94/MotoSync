@@ -1,26 +1,53 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Auth from './Auth';
 
-// Custom Marker Icons
-const selfIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+// Self-contained high-contrast SVG divIcons (No external PNG dependency that can fail)
+const selfIcon = L.divIcon({
+  className: 'motosync-self-marker',
+  html: `
+    <div style="position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+      <div style="position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(0, 229, 255, 0.35); animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+      <div style="width: 22px; height: 22px; border-radius: 50%; background: #00e5ff; border: 2.5px solid #000000; box-shadow: 0 0 14px rgba(0,229,255,0.9); display: flex; align-items: center; justify-content: center; font-size: 11px;">
+        🏍️
+      </div>
+    </div>
+  `,
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+  popupAnchor: [0, -18]
 });
 
-const friendIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+const friendIcon = L.divIcon({
+  className: 'motosync-friend-marker',
+  html: `
+    <div style="position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+      <div style="width: 18px; height: 18px; border-radius: 50%; background: #ff4444; border: 2px solid #ffffff; box-shadow: 0 0 10px rgba(255,68,68,0.8); display: flex; align-items: center; justify-content: center; font-size: 9px;">
+        🔴
+      </div>
+    </div>
+  `,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+  popupAnchor: [0, -16]
 });
+
+// Map resize and recentering controller component
+function MapController({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    map.invalidateSize();
+    if (center && center[0] && center[1]) {
+      map.setView(center, 13);
+    }
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [center, map]);
+  return null;
+}
 
 const PRESET_ROUTES = {
   ladakh: {
@@ -58,7 +85,7 @@ const PRESET_ROUTES = {
   }
 };
 
-const PublicInteractiveDashboard = ({ onLoginSuccess, onStartDemoRide }) => {
+const PublicInteractiveDashboard = ({ onLoginSuccess, onStartDemoRide, theme = 'dark', onToggleTheme }) => {
   const [selectedRouteKey, setSelectedRouteKey] = useState('ladakh');
   const [simulatedSpeed, setSimulatedSpeed] = useState(65);
   const [selectedFriend, setSelectedFriend] = useState(null);
@@ -126,13 +153,15 @@ const PublicInteractiveDashboard = ({ onLoginSuccess, onStartDemoRide }) => {
     setSosDemoActive(true);
   };
 
+  const isLight = theme === 'light';
+
   return (
-    <div className="min-h-screen w-full bg-[#000000] text-white font-sans relative overflow-x-hidden">
+    <div className={`min-h-screen w-full font-sans relative overflow-x-hidden ${isLight ? 'light-theme bg-[#f8fafc] text-slate-900' : 'bg-[#000000] text-white'}`}>
       
-      {/* AMBIENT BACKGROUND GLOW ORBS — mono aqua only */}
-      <div className="fixed top-[-10%] left-[-10%] w-[55vw] h-[55vw] rounded-full bg-[radial-gradient(circle,rgba(0,229,255,0.07)_0%,transparent_70%)] blur-[100px] pointer-events-none -z-10 animate-pulse" />
-      <div className="fixed bottom-[-15%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(0,229,255,0.04)_0%,transparent_70%)] blur-[130px] pointer-events-none -z-10" />
-      <div className="fixed top-[40%] left-[30%] w-[40vw] h-[40vw] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.03)_0%,transparent_70%)] blur-[100px] pointer-events-none -z-10" />
+      {/* AMBIENT BACKGROUND GLOW ORBS */}
+      <div className={`fixed top-[-10%] left-[-10%] w-[55vw] h-[55vw] rounded-full blur-[100px] pointer-events-none -z-10 animate-pulse ${isLight ? 'bg-cyan-500/10' : 'bg-[radial-gradient(circle,rgba(0,229,255,0.07)_0%,transparent_70%)]'}`} />
+      <div className={`fixed bottom-[-15%] right-[-10%] w-[60vw] h-[60vw] rounded-full blur-[130px] pointer-events-none -z-10 ${isLight ? 'bg-slate-300/30' : 'bg-[radial-gradient(circle,rgba(0,229,255,0.04)_0%,transparent_70%)]'}`} />
+      <div className={`fixed top-[40%] left-[30%] w-[40vw] h-[40vw] rounded-full blur-[100px] pointer-events-none -z-10 ${isLight ? 'bg-cyan-600/5' : 'bg-[radial-gradient(circle,rgba(255,255,255,0.03)_0%,transparent_70%)]'}`} />
 
       {/* TOP GLASS NAVIGATION BAR */}
       <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/8 px-3 sm:px-8 py-3 flex items-center justify-between gap-2">
@@ -163,9 +192,20 @@ const PublicInteractiveDashboard = ({ onLoginSuccess, onStartDemoRide }) => {
 
         {/* Nav Actions */}
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {onToggleTheme && (
+            <button 
+              onClick={onToggleTheme}
+              title={`Switch to ${isLight ? 'Dark' : 'Light'} Mode`}
+              className="glass-card hover:bg-[#00e5ff]/10 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 transition border border-white/10 dark:border-white/10 light:border-black/10"
+            >
+              <span>{isLight ? '🌙' : '☀️'}</span>
+              <span className="hidden sm:inline">{isLight ? 'Dark' : 'Light'}</span>
+            </button>
+          )}
+
           <button 
             onClick={() => handleOpenAuth('login')}
-            className="px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white/60 hover:text-white hover:bg-white/5 transition border border-transparent hover:border-white/10 whitespace-nowrap"
+            className="px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold opacity-70 hover:opacity-100 hover:bg-white/5 transition border border-transparent hover:border-white/10 whitespace-nowrap"
           >
             Sign In
           </button>
@@ -410,16 +450,22 @@ const PublicInteractiveDashboard = ({ onLoginSuccess, onStartDemoRide }) => {
             </div>
 
             {/* Interactive Leaflet Map — taller on mobile since sidebar is above */}
-            <div className="lg:col-span-8 rounded-2xl overflow-hidden border border-white/10 h-[300px] sm:h-[420px] lg:h-[520px] relative shadow-inner">
+            <div className="lg:col-span-8 rounded-2xl overflow-hidden border border-white/10 h-[320px] sm:h-[420px] lg:h-[520px] relative shadow-inner">
               <MapContainer
                 center={currentRoute.center}
                 zoom={13}
                 className="w-full h-full"
+                style={{ height: '100%', width: '100%', minHeight: '300px' }}
                 ref={mapRef}
                 zoomControl={true}
               >
+                <MapController center={currentRoute.center} />
+
                 <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  url={isLight
+                    ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                    : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"}
+                  subdomains={['a', 'b', 'c', 'd']}
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 />
 

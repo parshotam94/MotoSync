@@ -24,7 +24,35 @@ function App() {
     }
   });
 
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('motosync_theme') || 'dark';
+    } catch (e) {
+      return 'dark';
+    }
+  });
+
   const [globalSocket, setGlobalSocket] = useState(null);
+
+  // Sync theme with HTML root class
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+      document.body.classList.add('light');
+    } else {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.body.classList.remove('light');
+    }
+    try {
+      localStorage.setItem('motosync_theme', theme);
+    } catch (e) {}
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   const handleLoginSuccess = (user_id, username) => {
     const userData = { id: user_id, username };
@@ -85,6 +113,8 @@ function App() {
     return (
       <PublicInteractiveDashboard 
         onLoginSuccess={handleLoginSuccess}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
     );
   }
@@ -98,6 +128,8 @@ function App() {
         onJoinTrip={handleJoinTrip} 
         onLogout={handleLogout}
         globalSocket={globalSocket} 
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
     );
   }
@@ -110,6 +142,8 @@ function App() {
       tripId={activeTripId} 
       globalSocket={globalSocket}
       onLeaveTrip={handleLeaveTrip}
+      theme={theme}
+      onToggleTheme={toggleTheme}
     />
   );
 }

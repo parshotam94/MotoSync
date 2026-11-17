@@ -64,7 +64,7 @@ const Auth = ({ onLoginSuccess, initialMode = 'login' }) => {
 
   return (
     <div className="w-full">
-      <div className="glass-card bg-black/90 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl border border-white/12 shadow-[0_20px_50px_rgba(0,0,0,0.9)] text-white font-sans relative overflow-hidden">
+      <div className="glass-card bg-black/90 dark:bg-black/90 light:bg-white/95 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl border border-white/12 dark:border-white/12 light:border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.8)] font-sans relative overflow-hidden">
         
         {/* Subtle aqua corner glow */}
         <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-[#00e5ff]/8 blur-2xl pointer-events-none" />
@@ -72,26 +72,26 @@ const Auth = ({ onLoginSuccess, initialMode = 'login' }) => {
 
         {/* Brand Icon & Heading */}
         <div className="text-center mb-6">
-          <div className="inline-flex w-12 h-12 rounded-2xl bg-black items-center justify-center shadow-[0_0_18px_rgba(0,229,255,0.4)] border border-[#00e5ff]/30 mb-3">
+          <div className="inline-flex w-12 h-12 rounded-2xl bg-black dark:bg-black light:bg-slate-100 items-center justify-center shadow-[0_0_18px_rgba(0,229,255,0.4)] border border-[#00e5ff]/30 mb-3">
             <span className="text-2xl">🏍️</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
             Moto<span className="text-[#00e5ff] text-glow-cyan">Sync</span> Portal
           </h2>
-          <p className="text-xs sm:text-sm text-white/40 mt-1">
+          <p className="text-xs sm:text-sm opacity-50 mt-1">
             {isLogin ? 'Sign in to access your live convoy & telemetry' : 'Create a rider account to start hosting convoys'}
           </p>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex bg-black/60 p-1.5 rounded-2xl border border-white/8 mb-6">
+        <div className="flex bg-black/60 dark:bg-black/60 light:bg-slate-100 p-1.5 rounded-2xl border border-white/8 dark:border-white/8 light:border-slate-200 mb-6">
           <button
             type="button"
             onClick={() => { setIsLogin(true); setError(null); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
               isLogin
                 ? 'bg-[#00e5ff] text-black shadow-md'
-                : 'text-white/40 hover:text-white'
+                : 'opacity-50 hover:opacity-100'
             }`}
           >
             Sign In
@@ -102,7 +102,7 @@ const Auth = ({ onLoginSuccess, initialMode = 'login' }) => {
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
               !isLogin
                 ? 'bg-[#00e5ff] text-black shadow-md'
-                : 'text-white/40 hover:text-white'
+                : 'opacity-50 hover:opacity-100'
             }`}
           >
             Register
